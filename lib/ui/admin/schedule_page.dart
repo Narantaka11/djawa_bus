@@ -1,20 +1,43 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import '../app_drawer.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../helpers/bus_provider.dart';
 
 class SchedulePage extends StatelessWidget {
   const SchedulePage({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final u = FirebaseAuth.instance.currentUser;
-
     return Scaffold(
-      appBar: AppBar(title: const Text("Admin - Kelola Jadwal")),
-      drawer: const AppDrawer(),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Text("Admin: ${u?.email}"),
+      appBar: AppBar(title: const Text("Admin - Schedule")),
+      body: StreamBuilder<QuerySnapshot>(
+        stream: BusProvider.getBusStream(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+
+          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+            return const Center(child: Text("Belum ada data bus"));
+          }
+
+          final data = snapshot.data!.docs;
+
+          return ListView.builder(
+            itemCount: data.length,
+            itemBuilder: (context, index) {
+              final bus = data[index];
+              return Card(
+                margin: const EdgeInsets.all(8),
+                child: ListTile(
+                  title: Text("Bus ID: ${bus['bus_id']}"),
+                  subtitle: Text(
+                    "Jam: ${bus['depart_time']}\nHarga: ${bus['price']}",
+                  ),
+                ),
+              );
+            },
+          );
+        },
       ),
     );
   }

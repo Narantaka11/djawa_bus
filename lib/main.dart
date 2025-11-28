@@ -1,13 +1,17 @@
+// lib/main.dart
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'ui/splashscreen.dart';
 import 'helpers/user_provider.dart';
 import 'ui/login.dart';
 import 'ui/beranda.dart';
-import 'ui/admin/schedule_page.dart';
-import 'ui/app_drawer.dart';          // pastikan file ini ada
-import 'ui/placeholders.dart';       // profile, tickets, about, admin pages
+
+// admin pages yang bener
+import 'ui/admin/admin_buses_page.dart';
+import 'ui/admin/admin_schedules_page.dart';
+
 import 'firebase_options.dart';
 
 Future<void> main() async {
@@ -20,20 +24,20 @@ Future<void> main() async {
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Bus Ticketing (Firebase)',
       debugShowCheckedModeBanner: false,
-      home: const AuthGate(),
+      home: const SplashScreen(),
+
       routes: {
+        '/login': (_) => const Login(),
         '/beranda': (_) => const Beranda(),
-        '/profile': (_) => const ProfilePage(),
-        '/tickets': (_) => const TicketsPage(),
-        '/about': (_) => const AboutPage(),
-        // admin routes (placeholder)
-        '/admin/bus': (_) => const AdminBusPage(),
-        '/admin/schedule': (_) => const AdminSchedulePage(),
+        '/admin/bus': (_) => const AdminBusesPage(),
+        '/admin/schedule': (_) => const AdminSchedulesPage(),
+        '/auth' : (_) => const AuthGate(),
       },
     );
   }
@@ -44,50 +48,42 @@ class AuthGate extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    debugPrint ('[AuthGate] build() called');
+    // Listen ke auth state dulu
     return StreamBuilder<User?>(
       stream: FirebaseAuth.instance.authStateChanges(),
-      builder: (context, snapshot) {
-        // masih menunggu auth state
-        if (snapshot.connectionState == ConnectionState.waiting) {
+      builder: (context, authSnap) {
+        debugPrint('[AuthGate] authSnap state=${authSnap.connectionState} data=${authSnap.data} error=${authSnap.error}');
+        if (authSnap.connectionState == ConnectionState.waiting) {
           return const Scaffold(body: Center(child: CircularProgressIndicator()));
         }
 
-        final user = snapshot.data;
-
-        // belum login -> tampilkan layar login
+        final user = authSnap.data;
         if (user == null) {
+          // belum login
           return const Login();
         }
 
-        // sudah login -> ambil role dari Firestore,
-        // beri timeout agar UI tidak macet bila Firestore lambat/tidak ada dokumen
-        return FutureBuilder<String?>(
-          future: UserProvider.getRole(user.uid).timeout(
-            const Duration(seconds: 6),
-            onTimeout: () {
-              // debug log — untuk dilihat di console saat debugging
-              debugPrint('[AuthGate] getRole TIMEOUT for uid=${user.uid}');
-              return null; // fallback -> treat as 'user'
-            },
-          ),
-          builder: (context, roleSnapshot) {
-            // masih menunggu result role
-            if (roleSnapshot.connectionState == ConnectionState.waiting) {
+        // sudah login -> listen realtime ke users/{uid} role
+        return StreamBuilder<String?>(
+          stream: UserProvider.roleStream(user.uid),
+          builder: (context, roleSnap) {
+            // Jika kita sedang menunggu snapshot pertama (misalnya jaringan lambat)
+            if (roleSnap.connectionState == ConnectionState.waiting) {
               return const Scaffold(body: Center(child: CircularProgressIndicator()));
             }
 
-            // jika error saat getRole -> log & fallback ke Beranda (user)
-            if (roleSnapshot.hasError) {
-              debugPrint('[AuthGate] getRole ERROR: ${roleSnapshot.error}');
+            // Jika error saat listen doc user => fallback ke Beranda
+            if (roleSnap.hasError) {
+              debugPrint('[AuthGate] roleStream ERROR: ${roleSnap.error}');
               return const Beranda();
             }
 
-            // ambil role (null berarti default 'user')
-            final role = roleSnapshot.data ?? 'user';
-            debugPrint('[AuthGate] role for uid=${user.uid} => $role');
+            final role = roleSnap.data ?? 'user';
+            debugPrint('[AuthGate] auth uid=${user.uid} role=$role');
 
             if (role == 'admin') {
-              return const SchedulePage();
+              return const AdminSchedulesPage();
             }
             return const Beranda();
           },
